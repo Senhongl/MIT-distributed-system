@@ -430,13 +430,11 @@ func (rf *Raft) AppendEntryHandler(args *AppednEntryArgs, reply *AppendEntryRepl
 		// it should immediately reverts to follower state
 		reply.Term = rf.currentTerm
 		reply.Success = false
-		fmt.Printf("case 1, i am server %v, the sending msg is %v while my term is %v\n", rf.me, args, rf.currentTerm)
 	} else if args.PrevLogIndex >= len(rf.log) || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		rf.electionTimeout = false
 		rf.currentTerm = args.Term
 		reply.Term = rf.currentTerm
 		reply.Success = false
-		fmt.Printf("case 2, i am server %v, the sending msg is %v while my term is %v\n", rf.me, args, rf.currentTerm)
 	} else {
 		rf.electionTimeout = false
 		rf.currentTerm = args.Term
@@ -484,7 +482,6 @@ func (rf *Raft) sendAppendEntries(server int, args *AppednEntryArgs, reply *Appe
 	} else if reply.Success == false {
 		if reply.Term > rf.currentTerm {
 			// reset everything and turn state to follower
-			fmt.Printf("i am server %v, my state is %v and i am out of date.\n", rf.me, rf.state)
 			rf.state = FOLLOWER
 			rf.currentTerm = reply.Term
 			rf.votedFor = -1
@@ -573,16 +570,10 @@ func (rf *Raft) sendApplyMsg() {
 			message.CommandIndex = rf.lastApplied
 			message.CommandValid = true
 			rf.applyCh <- message
-			// timeout := time.NewTimer(100 * time.Millisecond)
-			// select {
-			// case rf.applyCh <- message:
-			// case <-timeout.C:
-			// 	rf.lastApplied--
-			// }
 		}
 
 		rf.mu.Unlock()
-		time.Sleep(time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -614,7 +605,7 @@ func (rf *Raft) updateCommitIndexForLeader() {
 			}
 		}
 		rf.mu.Unlock()
-		// time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -644,6 +635,11 @@ func (rf *Raft) election() {
 
 func (rf *Raft) printmsg() {
 	rf.mu.Lock()
-	fmt.Printf("the server is %v, the state is %v, the term is %v and the log is %v\n", rf.me, rf.state, rf.currentTerm, rf.log)
+	fmt.Printf("******************************************************************************************\n")
+	fmt.Printf("the server is %v, the state is %v, the term is %v\n", rf.me, rf.state, rf.currentTerm)
+	fmt.Printf("the length of log is %v and the log is %v\n", len(rf.log), rf.log)
+	fmt.Printf("the commitIndex is %v and the lastapplied is %v\n", rf.commitIndex, rf.lastApplied)
+	fmt.Printf("the nextIndex is %v\n", rf.nextIndex)
+	fmt.Printf("the matchIndex is %v\n", rf.matchIndex)
 	rf.mu.Unlock()
 }
