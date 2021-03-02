@@ -430,11 +430,24 @@ func (rf *Raft) AppendEntryHandler(args *AppednEntryArgs, reply *AppendEntryRepl
 		// it should immediately reverts to follower state
 		reply.Term = rf.currentTerm
 		reply.Success = false
-	} else if args.PrevLogIndex >= len(rf.log) || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+	} else if args.PrevLogIndex >= len(rf.log) {
 		rf.electionTimeout = false
 		rf.currentTerm = args.Term
 		reply.Term = rf.currentTerm
 		reply.Success = false
+		reply.DecrementLength += 1
+	} else if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		rf.electionTimeout = false
+		rf.currentTerm = args.Term
+		reply.Term = rf.currentTerm
+		reply.Success = false
+		term := rf.log[args.PrevLogIndex].Term
+		for i := args.PrevLogIndex; i > 0; i-- {
+			if rf.log[i].Term != term {
+				break
+			}
+			reply.DecrementLength += 1
+		}
 	} else {
 		rf.electionTimeout = false
 		rf.currentTerm = args.Term
@@ -456,9 +469,9 @@ func (rf *Raft) AppendEntryHandler(args *AppednEntryArgs, reply *AppendEntryRepl
 				continue
 			}
 			rf.log = append(rf.log, entry)
-			reply.AppendedLength++
+			// reply.AppendedLength++
 		}
-
+		reply.AppendedLength = len(rf.log) - 1 - args.PrevLogIndex
 		// if LeaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 
 		if args.LeaderCommit > rf.commitIndex {
@@ -493,7 +506,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppednEntryArgs, reply *Appe
 			go rf.ticker()
 			return ok
 		} else {
-			rf.nextIndex[server] -= 1
+			rf.nextIndex[server] -= reply.DecrementLength
 		}
 	} else if reply.Success == true {
 		rf.nextIndex[server] += reply.AppendedLength
