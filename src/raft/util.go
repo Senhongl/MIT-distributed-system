@@ -43,9 +43,10 @@ type AppednEntryArgs struct {
 // results return from the RPC
 //
 type AppendEntryReply struct {
-	Term           int  // currentTerm, for leader to update itself
-	Success        bool // true if follower contained entry matching prevLogIndex and prevLogTerm
-	AppendedLength int
+	Term            int  // currentTerm, for leader to update itself
+	Success         bool // true if follower contained entry matching prevLogIndex and prevLogTerm
+	AppendedLength  int
+	DecrementLength int
 }
 
 //
