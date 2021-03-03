@@ -280,7 +280,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		rf.persist()
 		rf.mu.Unlock()
 		return false
-	} else if reply.VoteGranted == true {
+	} else if args.Term == rf.currentTerm && reply.VoteGranted == true {
 		rf.voteCount++
 		if rf.voteCount > len(rf.peers)/2 && rf.state == CANDIDATE {
 			rf.state = LEADER
@@ -337,8 +337,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	newLog := Entry{command, term}
 	rf.log = append(rf.log, newLog)
 	rf.persist()
+	// go rf.AppendEntriesWrapping(true)
 	rf.mu.Unlock()
-
 	return index, term, isLeader
 }
 
@@ -481,9 +481,11 @@ func (rf *Raft) AppendEntryHandler(args *AppednEntryArgs, reply *AppendEntryRepl
 		reply.Success = true
 		// if an existing entry conflicts with a new one (same index but different term),
 		// delete the existing entry and all that follow it, $5.3
-		rf.log = rf.log[:args.PrevLogIndex+1]
-		rf.log = append(rf.log, args.Entries...)
-		reply.AppendedLength = len(rf.log) - 1 - args.PrevLogIndex
+		if len(args.Entries) != 0 {
+			rf.log = rf.log[:args.PrevLogIndex+1]
+			rf.log = append(rf.log, args.Entries...)
+		}
+		// reply.AppendedLength = len(rf.log) - 1 - args.PrevLogIndex
 		// if LeaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 
 		if args.LeaderCommit > rf.commitIndex {
@@ -508,23 +510,23 @@ func (rf *Raft) sendAppendEntries(server int, args *AppednEntryArgs, reply *Appe
 	} else if reply.Success == false {
 		if reply.Term > rf.currentTerm {
 			// reset everything and turn state to follower
-			// rf.state = FOLLOWER
-			// rf.currentTerm = reply.Term
-			// rf.votedFor = -1
-			// rf.voteCount = 0
-			// rf.nextIndex = make([]int, len(rf.peers))
-			// rf.matchIndex = make([]int, len(rf.peers))
-			// rf.electionTimeout = false
-			// rf.mu.Unlock()
-			// return ok
+			rf.state = FOLLOWER
+			rf.currentTerm = reply.Term
+			rf.votedFor = -1
+			rf.voteCount = 0
+			rf.nextIndex = make([]int, len(rf.peers))
+			rf.matchIndex = make([]int, len(rf.peers))
+			rf.electionTimeout = false
+			rf.mu.Unlock()
+			return ok
 		} else {
-			if rf.nextIndex[server] == args.PrevLogIndex+1 {
+			if rf.nextIndex[server] == args.PrevLogIndex+1 && rf.log[args.PrevLogIndex].Term == args.PrevLogTerm {
 				rf.nextIndex[server] -= reply.DecrementLength
 			}
 		}
 	} else if reply.Success == true {
-		if rf.nextIndex[server] == args.PrevLogIndex+1 {
-			rf.nextIndex[server] += reply.AppendedLength
+		if rf.nextIndex[server] == args.PrevLogIndex+1 && rf.log[args.PrevLogIndex].Term == args.PrevLogTerm {
+			rf.nextIndex[server] += len(args.Entries)
 			rf.matchIndex[server] = rf.nextIndex[server] - 1
 		}
 	}
@@ -542,47 +544,57 @@ func (rf *Raft) heartbeatTimeout() {
 			return
 		}
 
-		rf.mu.Lock()
-		if rf.state != LEADER {
-			rf.mu.Unlock()
+		if !rf.AppendEntriesWrapping(false) {
 			return
+		} else {
+			time.Sleep(100 * time.Millisecond)
 		}
-
-		arguments := make([]AppednEntryArgs, len(rf.peers))
-		replications := make([]AppendEntryReply, len(rf.peers))
-
-		for idx, value := range rf.nextIndex {
-			if idx != rf.me {
-				args := AppednEntryArgs{}
-				args.Term = rf.currentTerm
-				args.LeaderId = rf.me
-				args.LeaderCommit = rf.commitIndex
-				args.PrevLogIndex = len(rf.log) - 1
-				args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
-				args.Entries = make([]Entry, 0)
-				reply := AppendEntryReply{}
-				if len(rf.log)-1 >= value {
-					args.Entries = append(args.Entries, rf.log[value:]...)
-					args.PrevLogIndex = value - 1
-					args.PrevLogTerm = rf.log[value-1].Term
-				}
-				arguments[idx] = args
-				replications[idx] = reply
-			}
-		}
-
-		rf.mu.Unlock()
-
-		for idx, _ := range rf.peers {
-			if idx != rf.me {
-				args := arguments[idx]
-				reply := replications[idx]
-				go rf.sendAppendEntries(idx, &args, &reply)
-			}
-		}
-
-		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// a wrapper that could send either normal hearbeat or logs
+func (rf *Raft) AppendEntriesWrapping(heartbeat bool) bool {
+
+	rf.mu.Lock()
+
+	if rf.state != LEADER {
+		rf.mu.Unlock()
+		return false
+	}
+	arguments := make([]AppednEntryArgs, len(rf.peers))
+	replications := make([]AppendEntryReply, len(rf.peers))
+
+	for idx, value := range rf.nextIndex {
+		if idx != rf.me {
+			args := AppednEntryArgs{}
+			args.Term = rf.currentTerm
+			args.LeaderId = rf.me
+			args.LeaderCommit = rf.commitIndex
+			args.PrevLogIndex = len(rf.log) - 1
+			args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+			args.Entries = make([]Entry, 0)
+			reply := AppendEntryReply{}
+			if !heartbeat && len(rf.log)-1 >= value {
+				args.Entries = append(args.Entries, rf.log[value:]...)
+				args.PrevLogIndex = value - 1
+				args.PrevLogTerm = rf.log[value-1].Term
+			}
+			arguments[idx] = args
+			replications[idx] = reply
+		}
+	}
+
+	rf.mu.Unlock()
+
+	for idx, _ := range rf.peers {
+		if idx != rf.me {
+			args := arguments[idx]
+			reply := replications[idx]
+			go rf.sendAppendEntries(idx, &args, &reply)
+		}
+	}
+
+	return true
 }
 
 //
@@ -644,7 +656,6 @@ func (rf *Raft) updateCommitIndexForLeader() {
 //
 func (rf *Raft) election(args RequestVoteArgs) {
 	// whenever we start an election, we should reset the electiontimer
-
 	for idx, _ := range rf.peers {
 		if idx != rf.me {
 			// initialize a reply
