@@ -2,7 +2,7 @@ package raft
 
 import (
 	"bytes"
-	"fmt"
+
 	"6.824/labgob"
 )
 
@@ -42,15 +42,22 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 		// can't trim log since index is invalid
 		return
 	}
+	var log []Entry
 
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
-	e.Encode(rf.log[1:index-baseIndex+1])
+
 	snapshot = rf.persister.ReadSnapshot()
-	snapshot = append(snapshot, w.Bytes()...)
+	r := bytes.NewBuffer(snapshot)
+	d := labgob.NewDecoder(r)
+	d.Decode(&log)
+
+	log = append(log, rf.log[1:index-baseIndex+1]...)
+
+	e.Encode(log)
 
 	rf.trimLogWithoutLock(index, rf.log[index-baseIndex].Term)
-	rf.persister.SaveStateAndSnapshot(rf.getRaftStateWithoutLock(), snapshot)
+	rf.persister.SaveStateAndSnapshot(rf.getRaftStateWithoutLock(), w.Bytes())
 	rf.mu.Unlock()
 }
 
@@ -65,27 +72,25 @@ func (rf *Raft) readSnapshot(snapshot []byte) {
 	var log []Entry
 	r := bytes.NewBuffer(snapshot)
 	d := labgob.NewDecoder(r)
-	fmt.Printf("server %v tries to read\n", rf.me)
-	for {
-		if d.Decode(&log) == nil {
-			for idx := 0; idx < len(log); idx++ {
-				w := new(bytes.Buffer)
-				e := labgob.NewEncoder(w)
-				e.Encode(log[idx].Command)
-				message := ApplyMsg{}
-				message.SnapshotValid = true
-				message.Snapshot = w.Bytes()
-				message.SnapshotTerm = log[idx].Term
-				message.SnapshotIndex = log[idx].Index
-				rf.applyCh <- message
-			}
-		} else {
-			break
+	// fmt.Printf("server %v tries to read, the rf.lastApplied is %v\n!!!!!!!!!!!!!!!!!!!!!!!!", rf.me, rf.lastApplied)
+
+	if d.Decode(&log) == nil {
+		baseIndex := log[0].Index
+		for idx := rf.lastApplied + 1; idx <= log[len(log)-1].Index; idx++ {
+			w := new(bytes.Buffer)
+			e := labgob.NewEncoder(w)
+			e.Encode(log[idx-baseIndex].Command)
+			message := ApplyMsg{}
+			message.SnapshotValid = true
+			message.Snapshot = w.Bytes()
+			message.SnapshotTerm = log[idx-baseIndex].Term
+			message.SnapshotIndex = log[idx-baseIndex].Index
+			rf.applyCh <- message
 		}
 	}
 
-	lastIncludedIndex := log[len(log) - 1].Index
-	lastIncludedTerm := log[len(log) - 1].Term
+	lastIncludedIndex := log[len(log)-1].Index
+	lastIncludedTerm := log[len(log)-1].Term
 	rf.commitIndex = lastIncludedIndex
 	rf.lastApplied = lastIncludedIndex
 	newLog := make([]Entry, 0)
@@ -150,32 +155,32 @@ func (rf *Raft) InstallsnapshotHandler(args *SnapshotArgs, reply *SnapshotReply)
 		var log []Entry
 		r := bytes.NewBuffer(args.Data)
 		d := labgob.NewDecoder(r)
-		for {
-			if d.Decode(&log) == nil {
-				fmt.Printf("the log is %v, args is %v\n", log, args)
-				baseIndex := log[0].Index
-				for idx := rf.lastApplied + 1; idx <= args.LastIncludedIndex && idx <= log[len(log) - 1].Index; idx++ {
-					w := new(bytes.Buffer)
-					e := labgob.NewEncoder(w)
-					e.Encode(log[idx - baseIndex].Command)
-					message := ApplyMsg{}
-					message.SnapshotValid = true
-					message.Snapshot = w.Bytes()
-					message.SnapshotTerm = log[idx - baseIndex].Term
-					message.SnapshotIndex = log[idx - baseIndex].Index
-					rf.applyCh <- message
-				}
-			} else {
-				break
+
+		if d.Decode(&log) == nil {
+			// fmt.Printf("*****************************************\n")
+			// fmt.Printf("the rf.lastApplied is %v\n", rf.lastApplied)
+			// fmt.Printf("the snapshot is %v\n", log)
+			// fmt.Printf("the leader is %v, the term is %v, the lastidx is %v and the lastterm is %v\n", args.LeaderID, args.Term, args.LastIncludedIndex, args.LastIncludedTerm)
+			baseIndex := log[0].Index
+			for idx := rf.lastApplied + 1; idx <= args.LastIncludedIndex && idx <= log[len(log)-1].Index; idx++ {
+				w := new(bytes.Buffer)
+				e := labgob.NewEncoder(w)
+				e.Encode(log[idx-baseIndex].Command)
+				message := ApplyMsg{}
+				message.SnapshotValid = true
+				message.Snapshot = w.Bytes()
+				message.SnapshotTerm = log[idx-baseIndex].Term
+				message.SnapshotIndex = log[idx-baseIndex].Index
+				rf.applyCh <- message
 			}
 		}
-
+		rf.persister.SaveStateAndSnapshot(rf.getRaftStateWithoutLock(), args.Data)
 		newLog := make([]Entry, 0)
 		newLog = append(newLog, Entry{"", args.LastIncludedTerm, args.LastIncludedIndex})
 		rf.log = newLog
 		rf.commitIndex = args.LastIncludedIndex
 		rf.lastApplied = args.LastIncludedIndex
-		
+
 	}
 	return
 

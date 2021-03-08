@@ -98,6 +98,8 @@ func (rf *Raft) getRaftStateWithoutLock() []byte {
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
+	e.Encode(rf.commitIndex)
+	e.Encode(rf.lastApplied)
 	return w.Bytes()
 }
 
@@ -121,14 +123,14 @@ func (rf *Raft) readPersist(data []byte) {
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
 
-	var currentTerm int
-	var votedFor int
+	var currentTerm, votedFor, lastApplied, commitIndex int
 	var log []Entry
-	if d.Decode(&currentTerm) == nil && d.Decode(&votedFor) == nil && d.Decode(&log) == nil {
+	if d.Decode(&currentTerm) == nil && d.Decode(&votedFor) == nil && d.Decode(&log) == nil && d.Decode(&lastApplied) == nil && d.Decode(&commitIndex) == nil {
 		rf.currentTerm = currentTerm
 		rf.votedFor = votedFor
 		rf.log = log
-
+		rf.lastApplied = lastApplied
+		rf.commitIndex = commitIndex
 	}
 }
 
