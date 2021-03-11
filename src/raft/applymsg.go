@@ -17,7 +17,7 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
-
+	CommandTerm  int
 	// For 2D:
 	SnapshotValid bool
 	Snapshot      []byte
@@ -36,8 +36,10 @@ func (rf *Raft) sendApplyMsg() {
 			baseIndex := rf.log[0].Index
 			rf.lastApplied++
 			message := ApplyMsg{}
+			// command := rf.log[rf.lastApplied-baseIndex].Command
 			message.Command = rf.log[rf.lastApplied-baseIndex].Command
 			message.CommandIndex = rf.lastApplied
+			message.CommandTerm = rf.log[rf.lastApplied-baseIndex].Term
 			message.CommandValid = true
 			message.SnapshotValid = false
 			// fmt.Printf("the server is %v, the command is %v and the current term is %v\n", rf.me, message.Command, rf.currentTerm)

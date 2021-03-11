@@ -8,19 +8,23 @@ package raft
 // test with the original before submitting.
 //
 
-import "6.824/labgob"
-import "6.824/labrpc"
-import "bytes"
-import "log"
-import "sync"
-import "testing"
-import "runtime"
-import "math/rand"
-import crand "crypto/rand"
-import "math/big"
-import "encoding/base64"
-import "time"
-import "fmt"
+import (
+	"bytes"
+	"log"
+	"math/rand"
+	"runtime"
+	"sync"
+	"testing"
+
+	"6.824/labgob"
+	"6.824/labrpc"
+
+	crand "crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"time"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -206,6 +210,21 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 				err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
 			}
 			if err_msg != "" {
+				starts := 0
+				for si := 0; si < cfg.n; si++ {
+					starts = (starts + 1) % cfg.n
+					var rf *Raft
+					cfg.mu.Lock()
+					if cfg.connected[starts] {
+						rf = cfg.rafts[starts]
+					}
+					fmt.Printf("==================================================================\n")
+					fmt.Printf("the server is %v and the cfg log is %v\n", starts, cfg.logs[starts])
+					if rf != nil {
+						rf.printmsg()
+					}
+					cfg.mu.Unlock()
+				}
 				log.Fatalf("apply error: %v\n", err_msg)
 				cfg.applyErr[i] = err_msg
 				// keep reading after error so that Raft doesn't block
@@ -255,7 +274,6 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 	}
 
 	cfg.mu.Lock()
-
 	// a fresh persister, so old instance doesn't overwrite
 	// new instance's persisted state.
 	// but copy old persister's content so that we always
@@ -270,9 +288,9 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 
 	applyCh := make(chan ApplyMsg)
 	go applier(i, applyCh)
-
+	// fmt.Printf("before: restarting server %v, and its log is %v\n", i, cfg.logs[i])
 	rf := Make(ends, i, cfg.saved[i], applyCh)
-
+	// fmt.Printf("after: restarting server %v, and its log is %v\n", i, cfg.logs[i])
 	cfg.mu.Lock()
 	cfg.rafts[i] = rf
 	cfg.mu.Unlock()
@@ -539,6 +557,21 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			}
 		} else {
 			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	starts = 0
+	for si := 0; si < cfg.n; si++ {
+		starts = (starts + 1) % cfg.n
+		var rf *Raft
+		cfg.mu.Lock()
+		if cfg.connected[starts] {
+			rf = cfg.rafts[starts]
+		}
+		fmt.Printf("==================================================================\n")
+		fmt.Printf("the server is %v and the cfg log is %v\n", starts, cfg.logs[starts])
+		cfg.mu.Unlock()
+		if rf != nil {
+			rf.printmsg()
 		}
 	}
 	cfg.t.Fatalf("one(%v) failed to reach agreement", cmd)

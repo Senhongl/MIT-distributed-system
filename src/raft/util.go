@@ -29,3 +29,12 @@ func min(i int, j int) int {
 		return j
 	}
 }
+
+type Op struct {
+	// Your definitions here.
+	// Field names must start with capital letters,
+	// otherwise RPC will break.
+	Operation string
+	Key       string
+	Value     string
+}

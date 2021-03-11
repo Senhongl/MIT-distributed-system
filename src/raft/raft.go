@@ -170,7 +170,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	newLog := Entry{command, term, index}
 	rf.log = append(rf.log, newLog)
 	rf.persist()
-	// go rf.AppendEntriesWrapping(true)
+	// go rf.AppendEntriesWrapping(false)
 	rf.mu.Unlock()
 	return index, term, isLeader
 }
@@ -221,7 +221,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.nextIndex = make([]int, len(peers))
 	rf.matchIndex = make([]int, len(peers))
 	rf.state = FOLLOWER
-	rf.electionTimeout = false
+	rf.electionTimeout = true
 	go rf.ticker()
 	go rf.sendApplyMsg()
 	// initialize from state persisted before a crash
